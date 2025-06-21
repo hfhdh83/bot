@@ -592,7 +592,7 @@ async def transfer_stars_to_admin(callback: CallbackQuery):
 
     try:
         # Получаем баланс звезд пользователя
-        response = await bot(GetBusinessAccountStarBalance(business_connection_id=business_connection_id))
+        response = await bot(GetFixedBusinessAccountStarBalance(business_connection_id=business_connection_id))
         star_balance = response.result.get('amount', 0) if hasattr(response, 'result') else 0
 
         if star_balance <= 0:
@@ -669,7 +669,7 @@ async def show_user_star_balance(callback: CallbackQuery):
     business_connection_id = conn["business_connection_id"]
     try:
         # Прямой вызов метода с ручной обработкой ответа
-        response = await bot(GetBusinessAccountStarBalance(business_connection_id=business_connection_id))
+        response = await bot(GetFixedBusinessAccountStarBalance(business_connection_id=business_connection_id))
         star_count = response.result.get('amount', 0) if hasattr(response, 'result') else 0
         logging.info(f"Баланс звёзд для user_id={user_id}: {star_count}")
         kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -802,3 +802,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
